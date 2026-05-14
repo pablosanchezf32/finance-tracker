@@ -16,6 +16,7 @@ export type Transaction = {
   amount: number
   category: string | null
   is_income: boolean
+  is_avoidable: boolean
   statement_upload_id: string | null
   created_at: string
 }
@@ -74,7 +75,7 @@ export type Database = {
       }
       transactions: {
         Row: Transaction
-        Insert: { id?: string; account_id: string; date: string; description: string; merchant?: string | null; amount: number; category?: string | null; is_income?: boolean; statement_upload_id?: string | null; created_at?: string }
+        Insert: { id?: string; account_id: string; date: string; description: string; merchant?: string | null; amount: number; category?: string | null; is_income?: boolean; is_avoidable?: boolean; statement_upload_id?: string | null; created_at?: string }
         Update: Partial<Transaction>
         Relationships: []
       }

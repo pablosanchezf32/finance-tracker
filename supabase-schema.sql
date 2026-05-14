@@ -20,6 +20,7 @@ create table if not exists transactions (
   amount numeric(10,2) not null, -- positive = expense, negative = credit/payment
   category text,
   is_income boolean default false,
+  is_avoidable boolean default false,
   statement_upload_id uuid,
   created_at timestamptz default now()
 );

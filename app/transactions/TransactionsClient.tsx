@@ -11,6 +11,7 @@ type EditState = {
   amount: string
   date: string
   is_income: boolean
+  is_avoidable: boolean
 }
 
 export default function TransactionsClient({
@@ -23,6 +24,7 @@ export default function TransactionsClient({
   const [transactions, setTransactions] = useState(initialTransactions)
   const [filterAccount, setFilterAccount] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
+  const [filterAvoidable, setFilterAvoidable] = useState(false)
   const [search, setSearch] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editState, setEditState] = useState<EditState | null>(null)
@@ -31,6 +33,7 @@ export default function TransactionsClient({
   const filtered = transactions.filter((t) => {
     if (filterAccount && t.account_id !== filterAccount) return false
     if (filterCategory && t.category !== filterCategory) return false
+    if (filterAvoidable && !t.is_avoidable) return false
     if (search && !t.description.toLowerCase().includes(search.toLowerCase()) && !(t.merchant ?? '').toLowerCase().includes(search.toLowerCase())) return false
     return true
   })
@@ -38,6 +41,7 @@ export default function TransactionsClient({
   const totalExpenses = filtered.filter((t) => !t.is_income && t.amount > 0 && t.category !== 'Payment / Credit').reduce((s, t) => s + t.amount, 0)
   const totalIncome = filtered.filter((t) => (t.is_income || t.amount < 0) && t.category !== 'Payment / Credit').reduce((s, t) => s + Math.abs(t.amount), 0)
   const totalPayments = filtered.filter((t) => t.category === 'Payment / Credit').reduce((s, t) => s + Math.abs(t.amount), 0)
+  const totalAvoidable = filtered.filter((t) => t.is_avoidable && !t.is_income && t.amount > 0 && t.category !== 'Payment / Credit').reduce((s, t) => s + t.amount, 0)
 
   function startEdit(t: TransactionWithAccount) {
     setEditingId(t.id)
@@ -48,6 +52,7 @@ export default function TransactionsClient({
       amount: String(Math.abs(t.amount)),
       date: t.date,
       is_income: t.is_income,
+      is_avoidable: t.is_avoidable ?? false,
     })
   }
 
@@ -67,6 +72,7 @@ export default function TransactionsClient({
       amount: t.amount < 0 ? -Math.abs(amount) : Math.abs(amount),
       date: editState.date,
       is_income: editState.is_income,
+      is_avoidable: editState.is_avoidable,
     }
     const { error } = await supabase.from('transactions').update(updates).eq('id', t.id)
     if (!error) {
@@ -75,6 +81,13 @@ export default function TransactionsClient({
       setEditState(null)
     }
     setSaving(false)
+  }
+
+  async function toggleAvoidable(id: string, current: boolean) {
+    const { error } = await supabase.from('transactions').update({ is_avoidable: !current }).eq('id', id)
+    if (!error) {
+      setTransactions((prev) => prev.map((tx) => tx.id === id ? { ...tx, is_avoidable: !current } : tx))
+    }
   }
 
   async function handleDelete(id: string) {
@@ -146,18 +159,28 @@ export default function TransactionsClient({
             {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
-        {(filterAccount || filterCategory || search) && (
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Type</label>
           <button
-            onClick={() => { setFilterAccount(''); setFilterCategory(''); setSearch('') }}
+            onClick={() => setFilterAvoidable(!filterAvoidable)}
+            className={`border rounded-lg px-3 py-1.5 text-sm ${filterAvoidable ? 'bg-amber-100 border-amber-400 text-amber-800 font-medium' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+          >
+            Avoidable only
+          </button>
+        </div>
+        {(filterAccount || filterCategory || search || filterAvoidable) && (
+          <button
+            onClick={() => { setFilterAccount(''); setFilterCategory(''); setSearch(''); setFilterAvoidable(false) }}
             className="text-sm text-gray-500 hover:text-gray-700 underline"
           >
             Clear filters
           </button>
         )}
-        <div className="ml-auto flex gap-4 text-sm">
+        <div className="ml-auto flex gap-4 text-sm flex-wrap justify-end">
           <span className="text-red-600 font-medium">Expenses: ${totalExpenses.toFixed(2)}</span>
           <span className="text-green-600 font-medium">Income: ${totalIncome.toFixed(2)}</span>
           {totalPayments > 0 && <span className="text-blue-600 font-medium">Payments: ${totalPayments.toFixed(2)}</span>}
+          {totalAvoidable > 0 && <span className="text-amber-600 font-medium">Avoidable: ${totalAvoidable.toFixed(2)}</span>}
         </div>
       </div>
 
@@ -228,6 +251,14 @@ export default function TransactionsClient({
                           />
                           Mark as income
                         </label>
+                        <label className="flex items-center gap-1 text-xs text-amber-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={editState.is_avoidable}
+                            onChange={(e) => setEditState({ ...editState, is_avoidable: e.target.checked })}
+                          />
+                          Mark as avoidable
+                        </label>
                       </div>
                     </td>
                     <td className="px-4 py-2 text-right">
@@ -255,7 +286,7 @@ export default function TransactionsClient({
                     </td>
                   </tr>
                 ) : (
-                  <tr key={t.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => startEdit(t)}>
+                  <tr key={t.id} className={`hover:bg-gray-50 cursor-pointer ${t.is_avoidable ? 'bg-amber-50/40' : ''}`} onClick={() => startEdit(t)}>
                     <td className="px-4 py-3 text-gray-600">{t.date}</td>
                     <td className="px-4 py-3">
                       <p className="font-medium">{t.merchant || t.description}</p>
@@ -268,13 +299,27 @@ export default function TransactionsClient({
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded-full">{t.category}</span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded-full">{t.category}</span>
+                        {t.is_avoidable && (
+                          <span className="bg-amber-100 text-amber-700 text-xs px-2 py-0.5 rounded-full font-medium">avoidable</span>
+                        )}
+                      </div>
                     </td>
                     <td className={`px-4 py-3 text-right font-semibold ${t.category === 'Payment / Credit' ? 'text-blue-600' : t.amount < 0 || t.is_income ? 'text-green-600' : 'text-red-600'}`}>
                       {t.amount < 0 ? '+' : '-'}${Math.abs(t.amount).toFixed(2)}
                     </td>
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                      <button onClick={() => handleDelete(t.id)} className="text-gray-300 hover:text-red-500 text-xs">✕</button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => toggleAvoidable(t.id, t.is_avoidable ?? false)}
+                          title={t.is_avoidable ? 'Remove avoidable flag' : 'Mark as avoidable'}
+                          className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${t.is_avoidable ? 'bg-amber-100 border-amber-400 text-amber-700' : 'bg-gray-100 border-gray-300 text-gray-500 hover:bg-amber-50 hover:border-amber-300 hover:text-amber-600'}`}
+                        >
+                          avoidable
+                        </button>
+                        <button onClick={() => handleDelete(t.id)} className="text-gray-300 hover:text-red-500 text-xs">✕</button>
+                      </div>
                     </td>
                   </tr>
                 )
